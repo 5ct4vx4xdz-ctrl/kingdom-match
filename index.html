@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Kingdom Match</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; touch-action: none; }
+
+/* Fill the true screen — fixes iOS 100vh/chrome-bar crop and notch overlap */
+html {
+  height: 100%;
+  background: #0f0524; /* prevents white flash on overscroll */
+}
+
+body {
+  background: linear-gradient(160deg, #0f0524 0%, #0a1a42 45%, #061a06 100%);
+  /* position:fixed + inset:0 = reliable fullscreen on every iPhone model */
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column; align-items: center;
+  font-family: 'Georgia', serif;
+  /* push content clear of notch, Dynamic Island, and home indicator */
+  padding-top:    env(safe-area-inset-top,    0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left:   env(safe-area-inset-left,   0px);
+  padding-right:  env(safe-area-inset-right,  0px);
+}
+
+header {
+  color: #FFD700; text-align: center; padding: 14px 8px 2px; width: 100%;
+}
+header h1 {
+  font-size: 1.7rem; letter-spacing: 3px;
+  text-shadow: 0 0 24px rgba(255,215,0,0.9), 0 0 60px rgba(255,215,0,0.3);
+}
+header .subtitle {
+  font-size: 0.7rem; letter-spacing: 2px; opacity: 0.6; text-transform: uppercase; color: #e0d0ff; margin-top: 2px;
+}
+
+.stats {
+  display: flex; justify-content: center; gap: 8px;
+  width: 100%; padding: 6px 12px;
+}
+.stat-box {
+  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,215,0,0.2);
+  border-radius: 14px; padding: 5px 14px; text-align: center; min-width: 72px;
+  backdrop-filter: blur(4px);
+}
+.stat-box .label { font-size: 0.58rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; color: #ccc; }
+.stat-box .value { font-size: 1.1rem; font-weight: bold; color: #FFD700; }
+
+#board-container { display: flex; align-items: center; justify-content: center; flex: 1; width: 100%; padding: 6px; }
+
+#board {
+  display: grid; gap: 4px; padding: 10px;
+  background: rgba(0,0,0,0.35); border-radius: 18px;
+  border: 2px solid rgba(255,215,0,0.25);
+  box-shadow: 0 0 50px rgba(255,215,0,0.12), inset 0 0 30px rgba(0,0,0,0.4);
+  overflow: visible;
+}
+
+.tile {
+  border-radius: 13px; display: flex; align-items: center; justify-content: center;
+  cursor: pointer; position: relative; overflow: hidden;
+  border: 2px solid rgba(255,255,255,0.18);
+  will-change: transform;
+}
+.tile::before {
+  content: ''; position: absolute; top: 0; left: 0; right: 0; height: 44%;
+  background: rgba(255,255,255,0.22); border-radius: 10px 10px 50% 50%;
+  pointer-events: none;
+}
+.tile::after {
+  content: ''; position: absolute; bottom: 0; left: 0; right: 0; height: 30%;
+  background: rgba(0,0,0,0.18); border-radius: 50% 50% 10px 10px;
+  pointer-events: none;
+}
+.tile .sym { z-index: 1; line-height: 1; }
+.tile.selected {
+  transform: scale(1.12);
+  box-shadow: 0 0 22px rgba(255,255,255,0.9), 0 0 10px rgba(255,215,0,1);
+  border-color: #FFD700; z-index: 10;
+}
+
+/* ── BURST: tile pops bright then shatters outward ── */
+@keyframes tileBurst {
+  0%   { transform: scale(1)    rotate(0deg);  opacity: 1; filter: brightness(1); }
+  18%  { transform: scale(1.55) rotate(4deg);  opacity: 1; filter: brightness(3) saturate(2); }
+  50%  { transform: scale(1.1)  rotate(-6deg); opacity: 0.7; filter: brightness(1.8); }
+  100% { transform: scale(0)    rotate(22deg); opacity: 0; filter: brightness(1); }
+}
+.tile.matched { animation: tileBurst 0.38s cubic-bezier(0.55,0,1,0.45) forwards; }
+
+/* ── SHARDS flying outward ── */
+@keyframes shardFly {
+  0%   { transform: translate(0,0) scale(1) rotate(0deg); opacity: 1; }
+  15%  { opacity: 1; }
+  100% { transform: translate(var(--tx),var(--ty)) scale(0.15) rotate(var(--rot)); opacity: 0; }
+}
+
+/* ── FLASH radial glow expanding from tile center ── */
+@keyframes flashExpand {
+  0%   { width: 0; height: 0; opacity: 0.85; }
+  100% { width: var(--sz); height: var(--sz); opacity: 0; }
+}
+
+/* ── DROP-IN with bounce landing ── */
+@keyframes dropIn {
+  0%   { transform: translateY(-180px) scale(0.55); opacity: 0; }
+  60%  { transform: translateY(6px)    scale(1.09); opacity: 1; }
+  78%  { transform: translateY(-4px)   scale(0.96); opacity: 1; }
+  90%  { transform: translateY(2px)    scale(1.02); opacity: 1; }
+  100% { transform: translateY(0)      scale(1);    opacity: 1; }
+}
+.tile.drop-in { animation: dropIn 0.42s cubic-bezier(0.22,1,0.36,1) forwards; }
+
+@keyframes shake {
+  0%,100% { transform: translateX(0); }
+  20%     { transform: translateX(-6px); }
+  40%     { transform: translateX(6px); }
+  60%     { transform: translateX(-4px); }
+  80%     { transform: translateX(4px); }
+}
+.tile.shake { animation: shake 0.32s ease; }
+
+/* ── DRAG STATES ── */
+/* Grabbed tile floats up with glow */
+.tile.dragging {
+  z-index: 50 !important;
+  filter: brightness(1.3) saturate(1.2);
+  box-shadow: 0 18px 48px rgba(0,0,0,0.75), 0 0 28px rgba(255,215,0,0.5) !important;
+  overflow: visible;
+  cursor: grabbing;
+}
+/* Target tile pulses a gold ring to invite the drop */
+.tile.drag-target {
+  border-color: #FFD700 !important;
+  box-shadow: 0 0 0 3px #FFD700, 0 0 22px rgba(255,215,0,0.7),
+              inset 0 0 14px rgba(255,255,255,0.2) !important;
+}
+
+@keyframes scoreFloat {
+  from { transform: translateX(-50%) translateY(0); opacity: 1; }
+  to   { transform: translateX(-50%) translateY(-70px); opacity: 0; }
+}
+.score-popup {
+  position: fixed; font-size: 1.4rem; font-weight: bold;
+  color: #FFD700; text-shadow: 0 0 12px rgba(255,215,0,0.9);
+  pointer-events: none; z-index: 100;
+  animation: scoreFloat 0.9s ease forwards;
+}
+
+
+/* ---- OVERLAY ---- */
+#overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.72);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 200; display: none;
+}
+.msg-box {
+  background: linear-gradient(145deg, #1a0533cc, #0d1b4bcc);
+  border: 2px solid rgba(255,215,0,0.7); border-radius: 22px;
+  padding: 28px 32px; text-align: center; color: white;
+  box-shadow: 0 0 60px rgba(255,215,0,0.35), inset 0 0 20px rgba(0,0,0,0.3);
+  max-width: 88vw; backdrop-filter: blur(12px);
+}
+.msg-box h2 { font-size: 1.8rem; color: #FFD700; text-shadow: 0 0 20px rgba(255,215,0,0.8); margin-bottom: 10px; }
+.msg-box p  { font-size: 0.95rem; opacity: 0.85; line-height: 1.55; margin-bottom: 6px; }
+.msg-box .verse {
+  font-style: italic; font-size: 0.82rem; opacity: 0.65;
+  margin-top: 12px; border-top: 1px solid rgba(255,215,0,0.3); padding-top: 12px;
+}
+.btn {
+  background: linear-gradient(135deg, #FFD700, #FF8C00);
+  color: #1a0533; border: none; border-radius: 50px;
+  padding: 13px 34px; font-size: 1.05rem; font-weight: bold;
+  cursor: pointer; margin-top: 16px;
+  box-shadow: 0 4px 18px rgba(255,215,0,0.45); font-family: 'Georgia', serif;
+  letter-spacing: 0.5px;
+}
+.btn:active { transform: scale(0.95); }
+
+/* progress bar under stats */
+.progress-wrap { width: calc(100% - 24px); max-width: 460px; margin: 0 12px 4px; }
+.progress-bg {
+  background: rgba(255,255,255,0.1); border-radius: 8px; height: 7px;
+  border: 1px solid rgba(255,215,0,0.2); overflow: hidden;
+}
+.progress-fill {
+  height: 100%; border-radius: 8px;
+  background: linear-gradient(90deg, #FFD700, #FF8C00);
+  box-shadow: 0 0 8px rgba(255,215,0,0.7);
+  transition: width 0.4s ease;
+  min-width: 4px;
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>✝ Kingdom Match ✝</h1>
+  <div class="subtitle">Seek First the Kingdom</div>
+</header>
+
+<div class="stats">
+  <div class="stat-box"><div class="label">Score</div><div class="value" id="v-score">0</div></div>
+  <div class="stat-box"><div class="label">Level</div><div class="value" id="v-level">1</div></div>
+  <div class="stat-box"><div class="label">Moves</div><div class="value" id="v-moves">20</div></div>
+  <div class="stat-box"><div class="label">Goal</div><div class="value" id="v-goal">500</div></div>
+</div>
+
+<div class="progress-wrap">
+  <div class="progress-bg"><div class="progress-fill" id="progress" style="width:0%"></div></div>
+</div>
+
+<div id="board-container"><div id="board"></div></div>
+
+<div id="overlay">
+  <div class="msg-box">
+    <h2 id="m-title"></h2>
+    <p  id="m-body"></p>
+    <p  class="verse" id="m-verse"></p>
+    <button class="btn" id="m-btn">Continue</button>
+  </div>
+</div>
+
+<script>
+// ── CONFIG ───────────────────────────────────────────────────────────────────
+const COLS = 7, ROWS = 7;
+
+const TYPES = [
+  { sym:'✝',  bg:'linear-gradient(135deg,#b71c1c,#ef5350)', color:'#ef5350'  }, // Cross  - red
+  { sym:'🐟', bg:'linear-gradient(135deg,#0d47a1,#2196f3)', color:'#2196f3'  }, // Fish   - blue
+  { sym:'🕊', bg:'linear-gradient(135deg,#4a148c,#9c27b0)', color:'#9c27b0'  }, // Dove   - purple
+  { sym:'★',  bg:'linear-gradient(135deg,#e65100,#ffb300)', color:'#ffb300'  }, // Star   - gold
+  { sym:'🌿', bg:'linear-gradient(135deg,#1b5e20,#4caf50)', color:'#4caf50'  }, // Leaf   - green
+  { sym:'♥',  bg:'linear-gradient(135deg,#880e4f,#e91e63)', color:'#e91e63'  }, // Heart  - pink
+];
+
+const LEVEL_GOALS  = [500, 1100, 2000, 3200, 4800, 7000];
+const LEVEL_MOVES  = [20,  22,   24,   26,   28,   30  ];
+
+const VERSES = [
+  '"For God so loved the world…" — John 3:16',
+  '"I can do all things through Christ…" — Phil 4:13',
+  '"The Lord is my shepherd…" — Psalm 23:1',
+  '"Be still and know that I am God." — Psalm 46:10',
+  '"Love one another as I have loved you." — John 15:12',
+  '"His mercies are new every morning." — Lam 3:23',
+  '"Seek first the Kingdom of God." — Matt 6:33',
+  '"Trust in the Lord with all your heart." — Prov 3:5',
+  '"With God all things are possible." — Matt 19:26',
+  '"I am the way, the truth, and the life." — John 14:6',
+];
+
+// ── GAME STATE ───────────────────────────────────────────────────────────────
+let grid = [], score = 0, level = 1, moves = LEVEL_MOVES[0];
+let goal = LEVEL_GOALS[0], selected = null, busy = false;
+let tileSize = 0;
+// drag state: null when idle, object while a tile is being dragged
+let drag = null;
+
+// ── INIT ─────────────────────────────────────────────────────────────────────
+function calcSize() {
+  const avail = Math.min(window.innerWidth, 500) - 24;
+  return Math.floor((avail - (COLS - 1) * 4 - 20) / COLS);
+}
+
+function randomType() { return Math.floor(Math.random() * TYPES.length); }
+
+function buildGrid() {
+  let attempts = 0;
+  do {
+    grid = Array.from({ length: ROWS }, () => Array.from({ length: COLS }, randomType));
+    attempts++;
+    if (attempts > 200) break;
+  } while (findMatches().length > 0 || !hasMoves());
+}
+
+function buildCells() {
+  tileSize = calcSize();
+  const board = document.getElementById('board');
+  board.style.gridTemplateColumns = `repeat(${COLS}, ${tileSize}px)`;
+  board.innerHTML = '';
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
+      board.appendChild(makeCell(r, c, false));
+}
+
+function makeCell(r, c, animate) {
+  const t = TYPES[grid[r][c]];
+  const el = document.createElement('div');
+  el.className = 'tile' + (animate ? ' drop-in' : '');
+  el.dataset.r = r; el.dataset.c = c;
+  el.style.cssText = `width:${tileSize}px;height:${tileSize}px;background:${t.bg};`;
+  el.innerHTML = `<span class="sym" style="font-size:${Math.floor(tileSize * 0.46)}px">${t.sym}</span>`;
+  return el;
+}
+
+function cellEl(r, c) {
+  const b = document.getElementById('board');
+  return b.children[r * COLS + c];
+}
+
+function redrawCell(r, c, animate) {
+  const board = document.getElementById('board');
+  const old = board.children[r * COLS + c];
+  const neo = makeCell(r, c, animate);
+  board.replaceChild(neo, old);
+}
+
+function updateHUD() {
+  document.getElementById('v-score').textContent = score.toLocaleString();
+  document.getElementById('v-level').textContent = level;
+  document.getElementById('v-moves').textContent = moves;
+  document.getElementById('v-goal').textContent  = goal.toLocaleString();
+  const pct = Math.min(100, Math.round(score / goal * 100));
+  document.getElementById('progress').style.width = pct + '%';
+}
+
+// ── MATCHING LOGIC ───────────────────────────────────────────────────────────
+function findMatches() {
+  const set = new Set();
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS - 2; c++) {
+      const t = grid[r][c];
+      if (t === grid[r][c+1] && t === grid[r][c+2]) {
+        let e = c + 2;
+        while (e + 1 < COLS && grid[r][e+1] === t) e++;
+        for (let i = c; i <= e; i++) set.add(r * COLS + i);
+      }
+    }
+  }
+  for (let c = 0; c < COLS; c++) {
+    for (let r = 0; r < ROWS - 2; r++) {
+      const t = grid[r][c];
+      if (t === grid[r+1][c] && t === grid[r+2][c]) {
+        let e = r + 2;
+        while (e + 1 < ROWS && grid[e+1][c] === t) e++;
+        for (let i = r; i <= e; i++) set.add(i * COLS + c);
+      }
+    }
+  }
+  return [...set].map(k => ({ r: Math.floor(k / COLS), c: k % COLS }));
+}
+
+function hasMoves() {
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      if (c < COLS - 1) {
+        [grid[r][c], grid[r][c+1]] = [grid[r][c+1], grid[r][c]];
+        const ok = findMatches().length > 0;
+        [grid[r][c], grid[r][c+1]] = [grid[r][c+1], grid[r][c]];
+        if (ok) return true;
+      }
+      if (r < ROWS - 1) {
+        [grid[r][c], grid[r+1][c]] = [grid[r+1][c], grid[r][c]];
+        const ok = findMatches().length > 0;
+        [grid[r][c], grid[r+1][c]] = [grid[r+1][c], grid[r][c]];
+        if (ok) return true;
+      }
+    }
+  }
+  return false;
+}
+
+// ── SWAP & RESOLVE ────────────────────────────────────────────────────────────
+async function trySwap(r1, c1, r2, c2) {
+  busy = true;
+  const el1 = cellEl(r1, c1), el2 = cellEl(r2, c2);
+
+  // Remove selected highlight before animating
+  el1.classList.remove('selected'); el2.classList.remove('selected');
+
+  // Measure pixel delta between the two cells
+  const b1 = el1.getBoundingClientRect(), b2 = el2.getBoundingClientRect();
+  const dx = b2.left - b1.left, dy = b2.top - b1.top;
+
+  // Physically slide tiles toward each other
+  el1.style.zIndex = '20'; el2.style.zIndex = '15';
+  el1.style.transition = 'transform 0.19s cubic-bezier(0.4,0,0.2,1)';
+  el2.style.transition = 'transform 0.19s cubic-bezier(0.4,0,0.2,1)';
+  void el1.offsetWidth; // force reflow so transition fires
+  el1.style.transform = `translate(${dx}px,${dy}px) scale(1.12)`;
+  el2.style.transform = `translate(${-dx}px,${-dy}px)`;
+  await wait(210);
+
+  // Commit swap in data
+  [grid[r1][c1], grid[r2][c2]] = [grid[r2][c2], grid[r1][c1]];
+  const matches = findMatches();
+
+  if (matches.length === 0) {
+    // No match — slide back
+    [grid[r1][c1], grid[r2][c2]] = [grid[r2][c2], grid[r1][c1]];
+    el1.style.transition = 'transform 0.16s cubic-bezier(0.4,0,0.6,1)';
+    el2.style.transition = 'transform 0.16s cubic-bezier(0.4,0,0.6,1)';
+    el1.style.transform = ''; el2.style.transform = '';
+    await wait(180);
+    el1.style.transition = ''; el1.style.zIndex = '';
+    el2.style.transition = ''; el2.style.zIndex = '';
+    busy = false; return;
+  }
+
+  // Valid swap — snap DOM to new state and proceed
+  el1.style.transition = 'none'; el1.style.transform = ''; el1.style.zIndex = '';
+  el2.style.transition = 'none'; el2.style.transform = ''; el2.style.zIndex = '';
+  redrawCell(r1, c1, false); redrawCell(r2, c2, false);
+
+  moves--;
+  updateHUD();
+  await cascade();
+  busy = false;
+  if (score >= goal)        { await levelUp(); }
+  else if (moves <= 0)      { gameOver(); }
+  else if (!hasMoves())     { doShuffle(); }
+}
+
+async function cascade() {
+  let combo = 0;
+  while (true) {
+    const matches = findMatches();
+    if (matches.length === 0) break;
+    combo++;
+    const pts = matches.length * 30 * combo;
+    score += pts;
+
+    // Fire burst effects on each matched tile, then play the CSS animation
+    matches.forEach(({ r, c }) => {
+      spawnShards(r, c);
+      spawnFlash(r, c);
+      cellEl(r, c).classList.add('matched');
+    });
+    scorePopup(pts, matches);
+    await wait(400); // long enough for tileBurst + shards to be visible
+
+    // Clear matched cells from grid
+    matches.forEach(({ r, c }) => { grid[r][c] = null; });
+
+    // Gravity: drop existing tiles down
+    for (let c = 0; c < COLS; c++) {
+      let w = ROWS - 1;
+      for (let r = ROWS - 1; r >= 0; r--) {
+        if (grid[r][c] !== null) { grid[w][c] = grid[r][c]; if (w !== r) grid[r][c] = null; w--; }
+      }
+      while (w >= 0) { grid[w][c] = null; w--; }
+    }
+
+    // Fill empty cells with new tiles
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        if (grid[r][c] === null) grid[r][c] = randomType();
+
+    // Rebuild DOM; new tiles get the drop-in bounce animation
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+    for (let r = 0; r < ROWS; r++)
+      for (let c = 0; c < COLS; c++)
+        board.appendChild(makeCell(r, c, true));
+    updateHUD();
+    await wait(440); // wait for drop-in bounce to finish
+  }
+}
+
+// ── BURST EFFECTS ─────────────────────────────────────────────────────────────
+function spawnShards(r, c) {
+  const el = cellEl(r, c); if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const col = TYPES[grid[r][c]]?.color || '#FFD700';
+  const sz = Math.max(5, tileSize * 0.18);
+
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2 + (Math.random() - 0.5) * 0.7;
+    const dist  = tileSize * (0.8 + Math.random() * 1.1);
+    const dur   = 0.38 + Math.random() * 0.24;
+    const shape = Math.random() > 0.4 ? '50%' : '3px'; // dot or square chip
+
+    const s = document.createElement('div');
+    s.style.cssText =
+      `position:fixed;left:${cx - sz/2}px;top:${cy - sz/2}px;` +
+      `width:${sz}px;height:${sz}px;background:${col};border-radius:${shape};` +
+      `pointer-events:none;z-index:151;` +
+      `--tx:${Math.cos(angle)*dist}px;--ty:${Math.sin(angle)*dist}px;` +
+      `--rot:${Math.round(Math.random()*360)}deg;--dur:${dur}s;` +
+      `animation:shardFly var(--dur) ease-out forwards;`;
+    document.body.appendChild(s);
+    setTimeout(() => s.remove(), dur * 1000 + 60);
+  }
+}
+
+function spawnFlash(r, c) {
+  const el = cellEl(r, c); if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+  const col = TYPES[grid[r][c]]?.color || '#FFD700';
+  const sz = tileSize * 3.2;
+
+  const f = document.createElement('div');
+  f.style.cssText =
+    `position:fixed;left:${cx}px;top:${cy}px;` +
+    `background:radial-gradient(circle,${col}cc 0%,${col}55 35%,transparent 70%);` +
+    `border-radius:50%;pointer-events:none;z-index:149;` +
+    `transform:translate(-50%,-50%);--sz:${sz}px;` +
+    `animation:flashExpand 0.32s ease-out forwards;`;
+  document.body.appendChild(f);
+  setTimeout(() => f.remove(), 360);
+}
+
+function scorePopup(pts, matches) {
+  if (!matches.length) return;
+  const m = matches[Math.floor(matches.length / 2)];
+  const el = cellEl(m.r, m.c); if (!el) return;
+  const rect = el.getBoundingClientRect();
+  const pop = document.createElement('div');
+  pop.className = 'score-popup';
+  pop.textContent = '+' + pts;
+  pop.style.cssText = `left:${rect.left + rect.width/2}px;top:${rect.top}px;`;
+  document.body.appendChild(pop);
+  setTimeout(() => pop.remove(), 950);
+}
+
+// ── LEVEL / GAME OVER ─────────────────────────────────────────────────────────
+async function levelUp() {
+  if (level >= LEVEL_GOALS.length) {
+    showMsg('👑 You Did It!',
+      `Praise God! You completed all ${level} levels with a score of ${score.toLocaleString()}!`,
+      randomVerse(), 'Play Again', () => startGame());
+    return;
+  }
+  level++;
+  goal  = LEVEL_GOALS[level - 1];
+  moves = LEVEL_MOVES[level - 1];
+  await new Promise(res =>
+    showMsg(`✝ Level ${level}!`,
+      `Beautiful! Score so far: ${score.toLocaleString()}. Reach ${goal.toLocaleString()} to advance!`,
+      randomVerse(), `Start Level ${level}`, () => { buildGrid(); buildCells(); updateHUD(); res(); })
+  );
+}
+
+function gameOver() {
+  showMsg('🌿 Keep the Faith!',
+    `You ran out of moves. Score: ${score.toLocaleString()} — Goal: ${goal.toLocaleString()}. Try again!`,
+    '"His mercies are new every morning." — Lam 3:23',
+    'Try Again', () => startGame());
+}
+
+function doShuffle() {
+  showMsg('✨ Board Shuffled!',
+    'No more moves were available, so the board has been shuffled. Keep going!',
+    randomVerse(), 'Continue', () => { buildGrid(); buildCells(); });
+}
+
+// ── OVERLAY ───────────────────────────────────────────────────────────────────
+let _cb = null;
+function showMsg(title, body, verse, btn, cb) {
+  document.getElementById('m-title').textContent = title;
+  document.getElementById('m-body').textContent  = body;
+  document.getElementById('m-verse').textContent = verse;
+  document.getElementById('m-btn').textContent   = btn;
+  document.getElementById('overlay').style.display = 'flex';
+  _cb = cb;
+}
+document.getElementById('m-btn').addEventListener('click', () => {
+  document.getElementById('overlay').style.display = 'none';
+  if (_cb) { const f = _cb; _cb = null; f(); }
+});
+
+function randomVerse() { return VERSES[Math.floor(Math.random() * VERSES.length)]; }
+
+// ── INPUT ─────────────────────────────────────────────────────────────────────
+// Tap-to-select fallback (used when the pointer barely moves)
+function handleTap(el) {
+  if (busy) return;
+  const r = +el.dataset.r, c = +el.dataset.c;
+  if (selected === null) {
+    selected = { r, c };
+    el.classList.add('selected');
+  } else {
+    const prev = selected; selected = null;
+    cellEl(prev.r, prev.c)?.classList.remove('selected');
+    if (prev.r === r && prev.c === c) return;
+    const dr = Math.abs(r - prev.r), dc = Math.abs(c - prev.c);
+    if ((dr === 1 && dc === 0) || (dr === 0 && dc === 1)) {
+      trySwap(prev.r, prev.c, r, c);
+    } else {
+      selected = { r, c }; el.classList.add('selected');
+    }
+  }
+}
+
+// Drag-and-drop: tile follows the pointer, then animates directly into the swap
+document.getElementById('board').addEventListener('pointerdown', e => {
+  if (busy) return;
+  const tile = e.target.closest('.tile');
+  if (!tile) return;
+  e.preventDefault();
+  tile.setPointerCapture(e.pointerId); // keep events flowing even off the tile
+  drag = {
+    r: +tile.dataset.r, c: +tile.dataset.c, el: tile,
+    startX: e.clientX, startY: e.clientY,
+    lastDx: 0, lastDy: 0,
+    targetEl: null, moved: false
+  };
+}, { passive: false });
+
+document.addEventListener('pointermove', e => {
+  if (!drag) return;
+  e.preventDefault();
+  const dx = e.clientX - drag.startX;
+  const dy = e.clientY - drag.startY;
+
+  // Commit to drag mode after moving 8 px
+  if (!drag.moved && Math.hypot(dx, dy) > 8) {
+    drag.moved = true;
+    drag.el.classList.add('dragging');
+    // clear any tap-selection in progress
+    if (selected) { cellEl(selected.r, selected.c)?.classList.remove('selected'); selected = null; }
+  }
+  if (!drag.moved) return;
+
+  drag.lastDx = dx; drag.lastDy = dy;
+  drag.el.style.transform = `translate(${dx}px,${dy}px) scale(1.15)`;
+
+  // Find the tile currently under the pointer (ignore the dragged tile itself)
+  drag.el.style.pointerEvents = 'none';
+  const under = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tile');
+  drag.el.style.pointerEvents = '';
+
+  // Update target highlight
+  if (drag.targetEl && drag.targetEl !== under) {
+    drag.targetEl.classList.remove('drag-target');
+    drag.targetEl = null;
+  }
+  if (under && under !== drag.el) {
+    const tr = +under.dataset.r, tc = +under.dataset.c;
+    if (Math.abs(tr - drag.r) + Math.abs(tc - drag.c) === 1) {
+      drag.targetEl = under;
+      under.classList.add('drag-target');
+    }
+  }
+}, { passive: false });
+
+async function finishDrag(e) {
+  if (!drag) return;
+  const { r, c, el, moved, targetEl, lastDx, lastDy } = drag;
+  drag = null;
+
+  el.classList.remove('dragging');
+  if (targetEl) targetEl.classList.remove('drag-target');
+
+  if (!moved) {
+    // Tiny movement = treat as a tap
+    el.style.transform = '';
+    handleTap(el);
+    return;
+  }
+
+  if (!targetEl || busy) {
+    // No valid target — spring back to grid position
+    el.style.transition = 'transform 0.28s cubic-bezier(0.34,1.56,0.64,1)';
+    el.style.transform = '';
+    setTimeout(() => { el.style.transition = ''; }, 300);
+    return;
+  }
+
+  // ── Complete the drag swap ───────────────────────────────────────────────
+  busy = true;
+  const tr = +targetEl.dataset.r, tc = +targetEl.dataset.c;
+  const el2 = targetEl;
+
+  // Measure el1's natural (un-transformed) position to compute deltas
+  el.style.transform = '';
+  const nat1 = el.getBoundingClientRect();
+  el.style.transform = `translate(${lastDx}px,${lastDy}px) scale(1.15)`; // restore
+  const nat2 = el2.getBoundingClientRect();
+
+  // Each tile animates to the other's natural grid position
+  const tx1 = nat2.left - nat1.left, ty1 = nat2.top - nat1.top;
+  const tx2 = nat1.left - nat2.left, ty2 = nat1.top - nat2.top;
+
+  el.style.zIndex  = '20'; el2.style.zIndex = '15';
+  void el.offsetWidth; // flush so the transition sees the current transform
+  el.style.transition  = 'transform 0.15s cubic-bezier(0.4,0,0.2,1)';
+  el2.style.transition = 'transform 0.15s cubic-bezier(0.4,0,0.2,1)';
+  el.style.transform   = `translate(${tx1}px,${ty1}px)`;
+  el2.style.transform  = `translate(${tx2}px,${ty2}px)`;
+  await wait(165);
+
+  // Commit swap in grid data and check for matches
+  [grid[r][c], grid[tr][tc]] = [grid[tr][tc], grid[r][c]];
+  const matches = findMatches();
+
+  if (matches.length === 0) {
+    // No match — spring both tiles back
+    [grid[r][c], grid[tr][tc]] = [grid[tr][tc], grid[r][c]];
+    el.style.transition  = 'transform 0.24s cubic-bezier(0.34,1.56,0.64,1)';
+    el2.style.transition = 'transform 0.24s cubic-bezier(0.34,1.56,0.64,1)';
+    el.style.transform = ''; el2.style.transform = '';
+    await wait(260);
+    el.style.transition = ''; el.style.zIndex = '';
+    el2.style.transition = ''; el2.style.zIndex = '';
+    busy = false; return;
+  }
+
+  // Valid swap — snap DOM to new grid state, then cascade
+  el.style.transition  = 'none'; el.style.transform  = ''; el.style.zIndex  = '';
+  el2.style.transition = 'none'; el2.style.transform = ''; el2.style.zIndex = '';
+  redrawCell(r,  c,  false);
+  redrawCell(tr, tc, false);
+  moves--; updateHUD();
+  await cascade();
+  busy = false;
+  if (score >= goal)    { await levelUp(); }
+  else if (moves <= 0)  { gameOver(); }
+  else if (!hasMoves()) { doShuffle(); }
+}
+
+document.addEventListener('pointerup',     finishDrag);
+document.addEventListener('pointercancel', e => {
+  if (!drag) return;
+  const { el, targetEl } = drag; drag = null;
+  el.classList.remove('dragging');
+  if (targetEl) targetEl.classList.remove('drag-target');
+  el.style.transition = 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)';
+  el.style.transform  = '';
+  setTimeout(() => { el.style.transition = ''; }, 240);
+});
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// ── BOOT ──────────────────────────────────────────────────────────────────────
+function startGame() {
+  score = 0; level = 1; moves = LEVEL_MOVES[0]; goal = LEVEL_GOALS[0];
+  selected = null; busy = false;
+  buildGrid(); buildCells(); updateHUD();
+}
+
+window.addEventListener('resize', () => { buildCells(); });
+
+startGame();
+showMsg('✝ Kingdom Match',
+  'Swap tiles to match 3 or more in a row or column. Reach the goal score before running out of moves!',
+  '"Seek first the Kingdom of God." — Matthew 6:33',
+  '🙏 Start Playing!', null);
+</script>
+</body>
+</html>
