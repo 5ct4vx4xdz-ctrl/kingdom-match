@@ -593,31 +593,21 @@ function handleTap(el) {
   }
 }
 
-// Prevent browser native drag (grabs emoji/text and kills pointer events)
-document.getElementById('board').addEventListener('dragstart', e => e.preventDefault());
-
-// Drag-and-drop: tile follows the pointer, then animates directly into the swap
-document.getElementById('board').addEventListener('pointerdown', e => {
-  if (busy) return;
-  const tile = e.target.closest('.tile');
-  if (!tile) return;
-  e.preventDefault();
+// ── Shared drag helpers (used by both mouse and touch paths) ─────────────────
+function dragStart(tile, x, y) {
+  if (busy) return false;
   drag = {
     r: +tile.dataset.r, c: +tile.dataset.c, el: tile,
-    startX: e.clientX, startY: e.clientY,
-    lastDx: 0, lastDy: 0,
-    axis: null,       // 'h' or 'v', locked on first significant movement
-    targetEl: null, moved: false
+    startX: x, startY: y, lastDx: 0, lastDy: 0,
+    axis: null, targetEl: null, moved: false
   };
-}, { passive: false });
+  return true;
+}
 
-document.addEventListener('pointermove', e => {
+function dragMove(x, y) {
   if (!drag) return;
-  e.preventDefault();
-  const dx = e.clientX - drag.startX;
-  const dy = e.clientY - drag.startY;
+  const dx = x - drag.startX, dy = y - drag.startY;
 
-  // Lock axis and enter drag mode on first significant movement
   if (!drag.moved && Math.hypot(dx, dy) > 6) {
     drag.moved = true;
     drag.axis  = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
@@ -626,41 +616,73 @@ document.addEventListener('pointermove', e => {
   }
   if (!drag.moved) return;
 
-  // Tile follows the cursor freely — no axis constraint on the grabbed tile
   drag.lastDx = dx; drag.lastDy = dy;
   drag.el.style.transform = `translate(${dx}px,${dy}px) scale(1.12)`;
 
-  // Determine swap target using the LOCKED axis (stable, no flickering)
-  const dir    = drag.axis === 'h' ? Math.sign(dx) : Math.sign(dy);
-  const newTR  = drag.r + (drag.axis === 'v' ? dir : 0);
-  const newTC  = drag.c + (drag.axis === 'h' ? dir : 0);
-  const validTarget = dir !== 0
-    && newTR >= 0 && newTR < ROWS
-    && newTC >= 0 && newTC < COLS;
-  const newTargetEl = validTarget ? cellEl(newTR, newTC) : null;
+  const dir       = drag.axis === 'h' ? Math.sign(dx) : Math.sign(dy);
+  const newTR     = drag.r + (drag.axis === 'v' ? dir : 0);
+  const newTC     = drag.c + (drag.axis === 'h' ? dir : 0);
+  const newTarget = (dir !== 0 && newTR >= 0 && newTR < ROWS && newTC >= 0 && newTC < COLS)
+                    ? cellEl(newTR, newTC) : null;
 
-  // Update target highlight
-  if (drag.targetEl !== newTargetEl) {
+  if (drag.targetEl !== newTarget) {
     if (drag.targetEl) {
       drag.targetEl.classList.remove('drag-target');
       drag.targetEl.style.transition = 'transform 0.15s ease';
       drag.targetEl.style.transform  = '';
     }
-    drag.targetEl = newTargetEl;
+    drag.targetEl = newTarget;
     if (drag.targetEl) drag.targetEl.classList.add('drag-target');
   }
 
-  // Slide target tile in lock-step using only the on-axis component of the drag
   if (drag.targetEl) {
-    const dirX     = newTC - drag.c, dirY = newTR - drag.r;
-    const axisDist = drag.axis === 'h' ? Math.abs(dx) : Math.abs(dy);
-    const shift    = Math.min(axisDist, tileSize + 4);
+    const dirX  = newTC - drag.c, dirY = newTR - drag.r;
+    const shift = Math.min(drag.axis === 'h' ? Math.abs(dx) : Math.abs(dy), tileSize + 4);
     drag.targetEl.style.transition = 'none';
     drag.targetEl.style.transform  = `translate(${-dirX * shift}px,${-dirY * shift}px)`;
   }
-}, { passive: false });
+}
 
-async function finishDrag(e) {
+function dragCancel() {
+  if (!drag) return;
+  const { el, targetEl } = drag; drag = null;
+  el.classList.remove('dragging');
+  if (targetEl) { targetEl.classList.remove('drag-target'); targetEl.style.transition = ''; targetEl.style.transform = ''; }
+  el.style.transition = 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)';
+  el.style.transform  = '';
+  setTimeout(() => { el.style.transition = ''; }, 240);
+}
+
+// ── Mouse events (desktop) ────────────────────────────────────────────────────
+const board = document.getElementById('board');
+board.addEventListener('dragstart', e => e.preventDefault());
+board.addEventListener('mousedown', e => {
+  const tile = e.target.closest('.tile');
+  if (!tile) return;
+  e.preventDefault();
+  dragStart(tile, e.clientX, e.clientY);
+});
+document.addEventListener('mousemove', e => { dragMove(e.clientX, e.clientY); });
+document.addEventListener('mouseup',   () => { if (drag) finishDrag(); });
+
+// ── Touch events (iPhone / iPad) ──────────────────────────────────────────────
+board.addEventListener('touchstart', e => {
+  const t = e.changedTouches[0];
+  const tile = document.elementFromPoint(t.clientX, t.clientY)?.closest('.tile');
+  if (!tile) return;
+  e.preventDefault();
+  dragStart(tile, t.clientX, t.clientY);
+}, { passive: false });
+document.addEventListener('touchmove', e => {
+  if (!drag) return;
+  e.preventDefault();
+  const t = e.changedTouches[0];
+  dragMove(t.clientX, t.clientY);
+}, { passive: false });
+document.addEventListener('touchend',    e => { if (drag) finishDrag(); }, { passive: false });
+document.addEventListener('touchcancel', dragCancel);
+
+async function finishDrag() {
   if (!drag) return;
   const { r, c, el, moved, targetEl, lastDx, lastDy } = drag;
   drag = null;
@@ -739,20 +761,6 @@ async function finishDrag(e) {
   else if (!hasMoves()) { doShuffle(); }
 }
 
-document.addEventListener('pointerup',     finishDrag);
-document.addEventListener('pointercancel', e => {
-  if (!drag) return;
-  const { el, targetEl } = drag; drag = null;
-  el.classList.remove('dragging');
-  if (targetEl) {
-    targetEl.classList.remove('drag-target');
-    targetEl.style.transition = '';
-    targetEl.style.transform  = '';
-  }
-  el.style.transition = 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)';
-  el.style.transform  = '';
-  setTimeout(() => { el.style.transition = ''; }, 240);
-});
 
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
