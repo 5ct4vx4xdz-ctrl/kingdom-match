@@ -626,13 +626,11 @@ document.addEventListener('pointermove', e => {
   }
   if (!drag.moved) return;
 
-  // Constrain movement to the locked axis so both tiles always stay aligned
-  const axisDx = drag.axis === 'h' ? dx : 0;
-  const axisDy = drag.axis === 'v' ? dy : 0;
-  drag.lastDx = axisDx; drag.lastDy = axisDy;
-  drag.el.style.transform = `translate(${axisDx}px,${axisDy}px) scale(1.12)`;
+  // Tile follows the cursor freely — no axis constraint on the grabbed tile
+  drag.lastDx = dx; drag.lastDy = dy;
+  drag.el.style.transform = `translate(${dx}px,${dy}px) scale(1.12)`;
 
-  // Determine target from locked axis direction — no elementFromPoint needed
+  // Determine swap target using the LOCKED axis (stable, no flickering)
   const dir    = drag.axis === 'h' ? Math.sign(dx) : Math.sign(dy);
   const newTR  = drag.r + (drag.axis === 'v' ? dir : 0);
   const newTC  = drag.c + (drag.axis === 'h' ? dir : 0);
@@ -641,7 +639,7 @@ document.addEventListener('pointermove', e => {
     && newTC >= 0 && newTC < COLS;
   const newTargetEl = validTarget ? cellEl(newTR, newTC) : null;
 
-  // Swap target highlight if direction reversed or changed
+  // Update target highlight
   if (drag.targetEl !== newTargetEl) {
     if (drag.targetEl) {
       drag.targetEl.classList.remove('drag-target');
@@ -652,11 +650,11 @@ document.addEventListener('pointermove', e => {
     if (drag.targetEl) drag.targetEl.classList.add('drag-target');
   }
 
-  // Slide target tile in lock-step with the dragged tile
+  // Slide target tile in lock-step using only the on-axis component of the drag
   if (drag.targetEl) {
-    const dirX  = newTC - drag.c, dirY = newTR - drag.r;
-    const dist  = drag.axis === 'h' ? Math.abs(axisDx) : Math.abs(axisDy);
-    const shift = Math.min(dist, tileSize + 4);
+    const dirX     = newTC - drag.c, dirY = newTR - drag.r;
+    const axisDist = drag.axis === 'h' ? Math.abs(dx) : Math.abs(dy);
+    const shift    = Math.min(axisDist, tileSize + 4);
     drag.targetEl.style.transition = 'none';
     drag.targetEl.style.transform  = `translate(${-dirX * shift}px,${-dirY * shift}px)`;
   }
