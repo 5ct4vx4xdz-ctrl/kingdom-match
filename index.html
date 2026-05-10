@@ -242,7 +242,7 @@ const TYPES = [
   { sym:'♥',  bg:'linear-gradient(135deg,#880e4f,#e91e63)', color:'#e91e63'  }, // Heart  - pink
 ];
 
-const LEVEL_GOALS  = [500, 1100, 2000, 3200, 4800, 7000];
+const LEVEL_GOALS  = [2500, 5000, 10000, 16000, 24000, 35000];
 const LEVEL_MOVES  = [20,  22,   24,   26,   28,   30  ];
 
 const VERSES = [
@@ -608,16 +608,22 @@ function dragMove(x, y) {
   if (!drag) return;
   const dx = x - drag.startX, dy = y - drag.startY;
 
-  if (!drag.moved && Math.hypot(dx, dy) > 6) {
+  if (!drag.moved && Math.hypot(dx, dy) > 4) {
     drag.moved = true;
-    drag.axis  = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
     drag.el.classList.add('dragging');
     if (selected) { cellEl(selected.r, selected.c)?.classList.remove('selected'); selected = null; }
   }
   if (!drag.moved) return;
 
+  // Delay axis lock to 12px so trackpad jitter can't steal the wrong axis
+  if (!drag.axis && Math.hypot(dx, dy) > 12) {
+    drag.axis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+  }
+
   drag.lastDx = dx; drag.lastDy = dy;
   drag.el.style.transform = `translate(${dx}px,${dy}px) scale(1.12)`;
+
+  if (!drag.axis) return; // still reading direction — tile follows freely, no target yet
 
   const dir       = drag.axis === 'h' ? Math.sign(dx) : Math.sign(dy);
   const newTR     = drag.r + (drag.axis === 'v' ? dir : 0);
