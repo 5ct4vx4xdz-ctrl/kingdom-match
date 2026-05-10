@@ -615,9 +615,10 @@ function dragMove(x, y) {
   }
   if (!drag.moved) return;
 
-  // Delay axis lock to 12px so trackpad jitter can't steal the wrong axis
-  if (!drag.axis && Math.hypot(dx, dy) > 12) {
-    drag.axis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
+  // Lock to whichever axis individually reaches 15px first — immune to cross-axis jitter
+  if (!drag.axis) {
+    if (Math.abs(dx) > 15) drag.axis = 'h';
+    else if (Math.abs(dy) > 15) drag.axis = 'v';
   }
 
   drag.lastDx = dx; drag.lastDy = dy;
