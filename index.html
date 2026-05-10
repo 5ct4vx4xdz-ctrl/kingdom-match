@@ -66,6 +66,8 @@ header .subtitle {
   cursor: pointer; position: relative; overflow: hidden;
   border: 2px solid rgba(255,255,255,0.18);
   will-change: transform;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 .tile::before {
   content: ''; position: absolute; top: 0; left: 0; right: 0; height: 44%;
@@ -77,7 +79,7 @@ header .subtitle {
   background: rgba(0,0,0,0.18); border-radius: 50% 50% 10px 10px;
   pointer-events: none;
 }
-.tile .sym { z-index: 1; line-height: 1; }
+.tile .sym { z-index: 1; line-height: 1; user-select: none; pointer-events: none; }
 .tile.selected {
   transform: scale(1.12);
   box-shadow: 0 0 22px rgba(255,255,255,0.9), 0 0 10px rgba(255,215,0,1);
@@ -590,6 +592,9 @@ function handleTap(el) {
   }
 }
 
+// Prevent browser native drag (grabs emoji/text and kills pointer events)
+document.getElementById('board').addEventListener('dragstart', e => e.preventDefault());
+
 // Drag-and-drop: tile follows the pointer, then animates directly into the swap
 document.getElementById('board').addEventListener('pointerdown', e => {
   if (busy) return;
@@ -631,6 +636,8 @@ document.addEventListener('pointermove', e => {
   // Update target highlight
   if (drag.targetEl && drag.targetEl !== under) {
     drag.targetEl.classList.remove('drag-target');
+    drag.targetEl.style.transition = 'transform 0.15s ease';
+    drag.targetEl.style.transform  = '';
     drag.targetEl = null;
   }
   if (under && under !== drag.el) {
@@ -640,6 +647,17 @@ document.addEventListener('pointermove', e => {
       under.classList.add('drag-target');
     }
   }
+
+  // Slide the target tile toward the dragged tile's origin as it approaches
+  if (drag.targetEl) {
+    const tr = +drag.targetEl.dataset.r, tc = +drag.targetEl.dataset.c;
+    const dirX = tc - drag.c, dirY = tr - drag.r;          // unit direction (+/-1, 0)
+    const fullDist = tileSize + 4;                          // one cell width/height + gap
+    const proj  = Math.max(0, dx * dirX + dy * dirY);      // how far dragged toward target
+    const shift = Math.min(proj, fullDist) * 0.9;           // cap at full cell, ease slightly
+    drag.targetEl.style.transition = 'none';
+    drag.targetEl.style.transform  = `translate(${-dirX * shift}px, ${-dirY * shift}px)`;
+  }
 }, { passive: false });
 
 async function finishDrag(e) {
@@ -648,7 +666,11 @@ async function finishDrag(e) {
   drag = null;
 
   el.classList.remove('dragging');
-  if (targetEl) targetEl.classList.remove('drag-target');
+  if (targetEl) {
+    targetEl.classList.remove('drag-target');
+    targetEl.style.transition = '';
+    targetEl.style.transform  = '';
+  }
 
   if (!moved) {
     // Tiny movement = treat as a tap
@@ -722,7 +744,11 @@ document.addEventListener('pointercancel', e => {
   if (!drag) return;
   const { el, targetEl } = drag; drag = null;
   el.classList.remove('dragging');
-  if (targetEl) targetEl.classList.remove('drag-target');
+  if (targetEl) {
+    targetEl.classList.remove('drag-target');
+    targetEl.style.transition = '';
+    targetEl.style.transform  = '';
+  }
   el.style.transition = 'transform 0.22s cubic-bezier(0.34,1.56,0.64,1)';
   el.style.transform  = '';
   setTimeout(() => { el.style.transition = ''; }, 240);
