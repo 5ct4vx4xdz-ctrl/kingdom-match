@@ -52,7 +52,8 @@ header .subtitle {
 .stat-box .label { font-size: 0.58rem; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; color: #ccc; }
 .stat-box .value { font-size: 1.1rem; font-weight: bold; color: #FFD700; }
 
-#board-container { display: flex; align-items: center; justify-content: center; flex: 1; width: 100%; padding: 6px; }
+#main-row { display: flex; flex: 1; width: 100%; align-items: center; justify-content: center; padding: 0 6px; gap: 10px; min-height: 0; position: relative; z-index: 1; }
+#board-container { display: flex; align-items: center; justify-content: center; padding: 6px; }
 
 #board {
   display: grid; gap: 4px; padding: 10px;
@@ -231,7 +232,98 @@ header .subtitle {
 .corner-cross { position: absolute; }
 
 /* Raise all game UI above the decoration layer */
-header, .stats, .progress-wrap, #board-container { position: relative; z-index: 1; }
+header, .stats, .progress-wrap, #main-row { position: relative; z-index: 1; }
+
+/* ── LEADERBOARD ─────────────────────────────────────────────────────────── */
+#lb-backdrop {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(3px); z-index: 9;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.26s;
+}
+#lb-backdrop.open { opacity: 1; pointer-events: auto; }
+@media (min-width: 640px) { #lb-backdrop { display: none; } }
+
+#lb-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 210px;
+  background: linear-gradient(175deg, rgba(12,4,30,0.97) 0%, rgba(8,18,55,0.97) 100%);
+  border-left: 1px solid rgba(255,215,0,0.28);
+  backdrop-filter: blur(18px);
+  padding: 10px 10px;
+  padding-top: calc(env(safe-area-inset-top, 0px) + 10px);
+  padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 10px);
+  overflow-y: auto; z-index: 10;
+  transform: translateX(110%);
+  transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex; flex-direction: column;
+}
+#lb-panel.open { transform: translateX(0); }
+
+@media (min-width: 640px) {
+  #lb-panel {
+    position: relative; top: auto; right: auto; bottom: auto;
+    transform: none !important; width: 145px;
+    border: 1px solid rgba(255,215,0,0.28); border-radius: 16px;
+    backdrop-filter: none; padding: 12px 10px;
+    flex-shrink: 0; align-self: center;
+    max-height: 90vh; overflow-y: auto;
+  }
+}
+
+#lb-btn {
+  position: fixed; right: 10px; top: 50%; transform: translateY(-50%);
+  width: 42px; height: 42px; border-radius: 50%;
+  background: linear-gradient(135deg, rgba(255,215,0,0.20), rgba(200,100,0,0.15));
+  border: 1px solid rgba(255,215,0,0.50); color: inherit;
+  font-size: 1.2rem; cursor: pointer; z-index: 8;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.45), 0 0 14px rgba(255,215,0,0.18);
+  backdrop-filter: blur(8px);
+  display: flex; align-items: center; justify-content: center;
+  transition: transform 0.15s ease; touch-action: none;
+}
+#lb-btn:active { transform: translateY(-50%) scale(0.88); }
+@media (min-width: 640px) { #lb-btn { display: none; } }
+
+.lb-close-row {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 8px;
+}
+.lb-close-row span { color: #FFD700; font-size: 0.75rem; letter-spacing: 1.5px; text-transform: uppercase; opacity: 0.8; }
+.lb-close-btn {
+  background: none; border: none; color: rgba(255,215,0,0.55);
+  font-size: 1rem; cursor: pointer; padding: 2px 6px; line-height: 1;
+}
+.lb-close-btn:active { opacity: 0.6; }
+@media (min-width: 640px) { .lb-close-row { display: none; } }
+
+.lb-heading {
+  color: #FFD700; font-size: 0.58rem; letter-spacing: 2.5px;
+  text-transform: uppercase; text-align: center; opacity: 0.85;
+  display: flex; align-items: center; gap: 5px;
+  margin: 6px 0 5px;
+}
+.lb-heading::before, .lb-heading::after {
+  content: ''; flex: 1; height: 1px; background: rgba(255,215,0,0.22);
+}
+.lb-title-icon { font-size: 0.85rem; }
+
+#lb-daily-list, #lb-alltime-list { list-style: none; margin-bottom: 4px; }
+
+.lb-row {
+  display: flex; align-items: center; gap: 5px;
+  padding: 4px 6px; border-radius: 7px; margin-bottom: 3px;
+  background: rgba(255,255,255,0.05); font-size: 0.76rem;
+}
+.lb-row .rank { font-size: 0.7rem; color: rgba(255,255,255,0.45); min-width: 18px; }
+.lb-row .pts  { color: #fff; font-weight: bold; flex: 1; text-align: right; letter-spacing: 0.4px; font-size: 0.78rem; }
+.lb-row .lv   { font-size: 0.60rem; color: rgba(255,215,0,0.55); min-width: 20px; text-align: right; }
+.lb-row.gold   { background: rgba(255,215,0,0.10); border: 1px solid rgba(255,215,0,0.22); }
+.lb-row.gold   .rank { color: #FFD700; font-size: 0.88rem; }
+.lb-row.silver { background: rgba(192,192,192,0.07); border: 1px solid rgba(192,192,192,0.14); }
+.lb-row.silver .rank { color: #C0C0C0; font-size: 0.88rem; }
+.lb-row.bronze { background: rgba(180,100,30,0.09); border: 1px solid rgba(180,100,30,0.18); }
+.lb-row.bronze .rank { color: #CD7F32; font-size: 0.88rem; }
+.lb-none { color: rgba(255,255,255,0.32); font-size: 0.68rem; text-align: center; font-style: italic; padding: 8px 0; }
 </style>
 </head>
 <body>
@@ -341,7 +433,21 @@ header, .stats, .progress-wrap, #board-container { position: relative; z-index: 
   <div class="progress-bg"><div class="progress-fill" id="progress" style="width:0%"></div></div>
 </div>
 
-<div id="board-container"><div id="board"></div></div>
+<div id="main-row">
+  <div id="board-container"><div id="board"></div></div>
+  <aside id="lb-panel">
+    <div class="lb-close-row">
+      <span>Leaderboard</span>
+      <button class="lb-close-btn" id="lb-close">✕</button>
+    </div>
+    <div class="lb-heading"><span class="lb-title-icon">☀️</span> Today</div>
+    <ol id="lb-daily-list"></ol>
+    <div class="lb-heading"><span class="lb-title-icon">✝</span> All Time</div>
+    <ol id="lb-alltime-list"></ol>
+  </aside>
+</div>
+<div id="lb-backdrop"></div>
+<button id="lb-btn" title="Leaderboard">🏆</button>
 
 <div id="overlay">
   <div class="msg-box">
@@ -650,6 +756,7 @@ function scorePopup(pts, matches) {
 // ── LEVEL / GAME OVER ─────────────────────────────────────────────────────────
 async function levelUp() {
   if (level >= LEVEL_GOALS.length) {
+    saveScore(score, level);
     showMsg('👑 You Did It!',
       `Praise God! You completed all ${level} levels with a score of ${score.toLocaleString()}!`,
       randomVerse(), 'Play Again', () => startGame());
@@ -666,6 +773,7 @@ async function levelUp() {
 }
 
 function gameOver() {
+  saveScore(score, level);
   showMsg('🌿 Keep the Faith!',
     `You ran out of moves. Score: ${score.toLocaleString()} — Goal: ${goal.toLocaleString()}. Try again!`,
     '"His mercies are new every morning." — Lam 3:23',
@@ -892,6 +1000,59 @@ async function finishDrag() {
 }
 
 
+// ── LEADERBOARD ───────────────────────────────────────────────────────────────
+const LB_KEY = 'km_scores';
+
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+function saveScore(pts, lv) {
+  if (pts <= 0) return;
+  let all = [];
+  try { all = JSON.parse(localStorage.getItem(LB_KEY) || '[]'); } catch {}
+  all.push({ score: pts, level: lv, date: todayStr(), ts: Date.now() });
+  all.sort((a, b) => b.score - a.score);
+  if (all.length > 300) all.length = 300;
+  try { localStorage.setItem(LB_KEY, JSON.stringify(all)); } catch {}
+  renderLeaderboard();
+}
+
+function renderLeaderboard() {
+  let all = [];
+  try { all = JSON.parse(localStorage.getItem(LB_KEY) || '[]'); } catch {}
+  all.sort((a, b) => b.score - a.score);
+  const daily  = all.filter(s => s.date === todayStr()).slice(0, 5);
+  const alltime = all.slice(0, 10);
+  const medals  = ['gold', 'silver', 'bronze'];
+  const icons   = ['🥇', '🥈', '🥉'];
+
+  function fill(id, list) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!list.length) { el.innerHTML = '<li class="lb-none">Play a game to appear here!</li>'; return; }
+    el.innerHTML = list.map((s, i) =>
+      `<li class="lb-row ${medals[i] || ''}">
+        <span class="rank">${icons[i] || (i + 1)}</span>
+        <span class="pts">${s.score.toLocaleString()}</span>
+        <span class="lv">L${s.level}</span>
+      </li>`
+    ).join('');
+  }
+  fill('lb-daily-list',  daily);
+  fill('lb-alltime-list', alltime);
+}
+
+function toggleLB(force) {
+  const panel    = document.getElementById('lb-panel');
+  const backdrop = document.getElementById('lb-backdrop');
+  const open = force !== undefined ? force : !panel.classList.contains('open');
+  panel.classList.toggle('open', open);
+  backdrop.classList.toggle('open', open);
+}
+
+document.getElementById('lb-btn').addEventListener('click',    () => toggleLB());
+document.getElementById('lb-close').addEventListener('click',  () => toggleLB(false));
+document.getElementById('lb-backdrop').addEventListener('click',() => toggleLB(false));
+
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 function wait(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -900,6 +1061,7 @@ function startGame() {
   score = 0; level = 1; moves = LEVEL_MOVES[0]; goal = LEVEL_GOALS[0];
   selected = null; busy = false;
   buildGrid(); buildCells(); updateHUD();
+  renderLeaderboard();
 }
 
 window.addEventListener('resize', () => { buildCells(); });
