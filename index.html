@@ -601,11 +601,12 @@ document.getElementById('board').addEventListener('pointerdown', e => {
   const tile = e.target.closest('.tile');
   if (!tile) return;
   e.preventDefault();
-  tile.setPointerCapture(e.pointerId); // keep events flowing even off the tile
+  tile.setPointerCapture(e.pointerId);
   drag = {
     r: +tile.dataset.r, c: +tile.dataset.c, el: tile,
     startX: e.clientX, startY: e.clientY,
     lastDx: 0, lastDy: 0,
+    axis: null,       // 'h' or 'v', locked on first significant movement
     targetEl: null, moved: false
   };
 }, { passive: false });
@@ -616,47 +617,48 @@ document.addEventListener('pointermove', e => {
   const dx = e.clientX - drag.startX;
   const dy = e.clientY - drag.startY;
 
-  // Commit to drag mode after moving 8 px
-  if (!drag.moved && Math.hypot(dx, dy) > 8) {
+  // Lock axis and enter drag mode on first significant movement
+  if (!drag.moved && Math.hypot(dx, dy) > 6) {
     drag.moved = true;
+    drag.axis  = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v';
     drag.el.classList.add('dragging');
-    // clear any tap-selection in progress
     if (selected) { cellEl(selected.r, selected.c)?.classList.remove('selected'); selected = null; }
   }
   if (!drag.moved) return;
 
-  drag.lastDx = dx; drag.lastDy = dy;
-  drag.el.style.transform = `translate(${dx}px,${dy}px) scale(1.15)`;
+  // Constrain movement to the locked axis so both tiles always stay aligned
+  const axisDx = drag.axis === 'h' ? dx : 0;
+  const axisDy = drag.axis === 'v' ? dy : 0;
+  drag.lastDx = axisDx; drag.lastDy = axisDy;
+  drag.el.style.transform = `translate(${axisDx}px,${axisDy}px) scale(1.12)`;
 
-  // Find the tile currently under the pointer (ignore the dragged tile itself)
-  drag.el.style.pointerEvents = 'none';
-  const under = document.elementFromPoint(e.clientX, e.clientY)?.closest('.tile');
-  drag.el.style.pointerEvents = '';
+  // Determine target from locked axis direction — no elementFromPoint needed
+  const dir    = drag.axis === 'h' ? Math.sign(dx) : Math.sign(dy);
+  const newTR  = drag.r + (drag.axis === 'v' ? dir : 0);
+  const newTC  = drag.c + (drag.axis === 'h' ? dir : 0);
+  const validTarget = dir !== 0
+    && newTR >= 0 && newTR < ROWS
+    && newTC >= 0 && newTC < COLS;
+  const newTargetEl = validTarget ? cellEl(newTR, newTC) : null;
 
-  // Update target highlight
-  if (drag.targetEl && drag.targetEl !== under) {
-    drag.targetEl.classList.remove('drag-target');
-    drag.targetEl.style.transition = 'transform 0.15s ease';
-    drag.targetEl.style.transform  = '';
-    drag.targetEl = null;
-  }
-  if (under && under !== drag.el) {
-    const tr = +under.dataset.r, tc = +under.dataset.c;
-    if (Math.abs(tr - drag.r) + Math.abs(tc - drag.c) === 1) {
-      drag.targetEl = under;
-      under.classList.add('drag-target');
+  // Swap target highlight if direction reversed or changed
+  if (drag.targetEl !== newTargetEl) {
+    if (drag.targetEl) {
+      drag.targetEl.classList.remove('drag-target');
+      drag.targetEl.style.transition = 'transform 0.15s ease';
+      drag.targetEl.style.transform  = '';
     }
+    drag.targetEl = newTargetEl;
+    if (drag.targetEl) drag.targetEl.classList.add('drag-target');
   }
 
-  // Slide the target tile toward the dragged tile's origin as it approaches
+  // Slide target tile in lock-step with the dragged tile
   if (drag.targetEl) {
-    const tr = +drag.targetEl.dataset.r, tc = +drag.targetEl.dataset.c;
-    const dirX = tc - drag.c, dirY = tr - drag.r;          // unit direction (+/-1, 0)
-    const fullDist = tileSize + 4;                          // one cell width/height + gap
-    const proj  = Math.max(0, dx * dirX + dy * dirY);      // how far dragged toward target
-    const shift = Math.min(proj, fullDist) * 0.9;           // cap at full cell, ease slightly
+    const dirX  = newTC - drag.c, dirY = newTR - drag.r;
+    const dist  = drag.axis === 'h' ? Math.abs(axisDx) : Math.abs(axisDy);
+    const shift = Math.min(dist, tileSize + 4);
     drag.targetEl.style.transition = 'none';
-    drag.targetEl.style.transform  = `translate(${-dirX * shift}px, ${-dirY * shift}px)`;
+    drag.targetEl.style.transform  = `translate(${-dirX * shift}px,${-dirY * shift}px)`;
   }
 }, { passive: false });
 
